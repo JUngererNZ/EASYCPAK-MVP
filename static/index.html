@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EasyCargo Internal - Load Planner</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f7fc; color: #1e293b; padding: 20px; }
+        .container { max-width: 1600px; margin: 0 auto; }
+        h1 { font-size: 24px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; }
+        .badge { background: #0f172a; color: white; padding: 4px 12px; border-radius: 20px; font-size: 14px; }
+        
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 16px; }
+        .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); border: 1px solid #e2e8f0; }
+        .card-title { font-weight: 600; font-size: 16px; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
+
+        /* Upload */
+        .drop-zone { border: 2px dashed #94a3b8; border-radius: 12px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.2s; }
+        .drop-zone:hover { border-color: #3b82f6; background: #f8fafc; }
+        .drop-zone input { display: none; }
+        .file-name { font-weight: 500; color: #2563eb; }
+
+        /* Table */
+        .table-wrap { overflow-x: auto; max-height: 300px; overflow-y: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th { background: #f1f5f9; text-align: left; padding: 8px 12px; position: sticky; top: 0; z-index: 2; }
+        td { padding: 6px 12px; border-bottom: 1px solid #e2e8f0; }
+        .dirty-row { background: #fef9c3; }
+        .dirty-cell { border: 2px solid #ef4444; border-radius: 4px; }
+        .dirty-cell input { border: none; background: transparent; width: 100%; font-family: inherit; }
+        .dirty-cell input:focus { outline: none; background: white; }
+        .badge-warning { background: #fef08a; color: #854d0e; padding: 2px 8px; border-radius: 12px; font-size: 12px; }
+
+        /* Trailer Selector */
+        select { padding: 8px 16px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 16px; width: 100%; }
+
+        /* 3D Viewer */
+        #canvas-container { width: 100%; height: 500px; background: #1e293b; border-radius: 8px; overflow: hidden; position: relative; }
+        #canvas-container canvas { display: block; }
+
+        /* Dashboard */
+        .status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 12px; }
+        .stat-box { background: #f8fafc; padding: 12px; border-radius: 8px; text-align: center; }
+        .stat-label { font-size: 12px; color: #64748b; }
+        .stat-value { font-size: 20px; font-weight: 700; }
+        .safe { color: #16a34a; }
+        .danger { color: #dc2626; }
+        .violation-list { list-style: none; padding: 0; }
+        .violation-list li { background: #fee2e2; color: #991b1b; padding: 6px 12px; border-radius: 6px; margin-bottom: 4px; font-size: 14px; }
+
+        .btn { background: #2563eb; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 16px; transition: background 0.2s; }
+        .btn:hover { background: #1d4ed8; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-secondary { background: #94a3b8; }
+
+        .mt-16 { margin-top: 16px; }
+        .flex { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+        .flex-grow { flex: 1; }
+        .mb-8 { margin-bottom: 8px; }
+
+        .units-toggle { display: flex; gap: 4px; background: #e2e8f0; padding: 4px; border-radius: 8px; }
+        .units-toggle button { background: transparent; border: none; padding: 6px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+        .units-toggle button.active { background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+
+        @media (max-width: 1024px) { .grid-2 { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>📦 Load Planner <span class="badge">Internal v1</span></h1>
+
+    <!-- Upload Section -->
+    <div class="card">
+        <div class="flex mb-8">
+            <div class="flex-grow">
+                <div class="drop-zone" id="dropZone">
+                    <p>📂 Drag & drop your Excel/CSV file here, or <strong>browse</strong></p>
+                    <p style="font-size: 12px; color: #64748b; margin-top: 8px;">Supports .xlsx, .xls, .csv</p>
+                    <input type="file" id="fileInput" accept=".csv,.xlsx,.xls">
+                    <div id="fileStatus" style="margin-top: 8px;"></div>
+                </div>
+            </div>
+            <div style="min-width: 150px;">
+                <div class="units-toggle" id="unitsToggle">
+                    <button data-unit="cm">cm</button>
+                    <button data-unit="in">in</button>
+                    <button class="active" data-unit="mm">mm</button>
+                </div>
+                <p style="font-size: 12px; color: #64748b; margin-top: 4px;">Measurements unit</p>
+            </div>
+        </div>
+        <div id="previewSection" style="display: none;">
+            <div class="flex" style="justify-content: space-between;">
+                <span><strong id="itemCount"></strong> items loaded. <span id="dirtyCount" class="badge-warning"></span></span>
+                <span style="color: #dc2626;" id="errorBanner"></span>
+            </div>
+            <div class="table-wrap mt-16">
+                <table>
+                    <thead>
+                        <tr><th>#</th><th>Description</th><th>Length (m)</th><th>Width (m)</th><th>Height (m)</th><th>Mass (kg)</th><th>Status</th></tr>
+                    </thead>
+                    <tbody id="previewTableBody"></tbody>
+                </table>
+            </div>
+            <div class="flex mt-16">
+                <div class="flex-grow">
+                    <label>Select Trailer:</label>
+                    <select id="trailerSelect"></select>
+                </div>
+                <button class="btn" id="calcBtn">🚀 Calculate Load Plan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Section -->
+    <div id="resultsSection" style="display: none; margin-top: 24px;">
+        <div class="grid-2">
+            <!-- Left: 3D Viewer -->
+            <div class="card">
+                <div class="card-title">3D Load Visualization</div>
+                <div id="canvas-container"></div>
+                <div style="margin-top: 8px; font-size: 12px; color: #64748b; text-align: center;">🖱️ Drag to rotate | Scroll to zoom</div>
+            </div>
+            <!-- Right: Dashboard -->
+            <div class="card">
+                <div class="card-title">Compliance Dashboard</div>
+                <div class="status-grid" id="statusGrid">
+                    <div class="stat-box"><div class="stat-label">Status</div><div class="stat-value" id="statusIcon">✅</div></div>
+                    <div class="stat-box"><div class="stat-label">Total Mass</div><div class="stat-value" id="totalMass">0 t</div></div>
+                    <div class="stat-box"><div class="stat-label">Utilization</div><div class="stat-value" id="utilization">0%</div></div>
+                </div>
+                <div id="violationsContainer"></div>
+                <div class="mt-16" style="background: #f1f5f9; padding: 12px; border-radius: 8px;">
+                    <strong>Axle Report</strong>
+                    <div class="flex" style="justify-content: space-between; margin-top: 4px;">
+                        <span>Front Axle: <span id="frontAxle">0 t</span></span>
+                        <span>Rear Group: <span id="rearAxle">0 t</span></span>
+                        <span>COG: <span id="cog">0 m</span></span>
+                    </div>
+                </div>
+                <div class="mt-16">
+                    <h4>Unplaced Items</h4>
+                    <ul id="unplacedList" style="color: #dc2626;"></ul>
+                </div>
+                <button class="btn btn-secondary mt-16" onclick="window.print()">🖨️ Export to PDF</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ===================== GLOBALS =====================
+    let currentItems = [];
+    let currentUnit = 'mm';
+    let trailerList = [];
+    let scene, camera, renderer, controls;
+    let isCalcRunning = false;
+
+    // ===================== INIT =====================
+    document.addEventListener('DOMContentLoaded', async () => {
+        // Fetch trailers
+        const res = await fetch('/api/trailers');
+        const data = await res.json();
+        trailerList = data.trailers || [];
+        const select = document.getElementById('trailerSelect');
+        trailerList.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t;
+            opt.textContent = t;
+            select.appendChild(opt);
+        });
+
+        // Upload logic
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', e => e.preventDefault());
+        dropZone.addEventListener('drop', e => {
+            e.preventDefault();
+            if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+        });
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length) handleFile(fileInput.files[0]);
+        });
+
+        // Units toggle
+        document.querySelectorAll('#unitsToggle button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('#unitsToggle button').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentUnit = btn.dataset.unit;
+                if (currentItems.length > 0) {
+                    if (window._lastFile) handleFile(window._lastFile);
+                }
+            });
+        });
+
+        // Calculate button
+        document.getElementById('calcBtn').addEventListener('click', runCalculation);
+    });
+
+    // ===================== FILE HANDLING =====================
+    let currentFileData = null;
+
+    async function handleFile(file) {
+        window._lastFile = file;
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('units', currentUnit);
+
+        document.getElementById('fileStatus').innerHTML = `⏳ Uploading...`;
+
+        try {
+            const res = await fetch('/api/upload-preview', { method: 'POST', body: formData });
+            const data = await res.json();
+            
+            if (data.error) {
+                document.getElementById('fileStatus').innerHTML = `❌ ${data.error}`;
+                return;
+            }
+
+            currentFileData = data;
+            currentItems = data.items || [];
+            renderPreview(data);
+            document.getElementById('fileStatus').innerHTML = `✅ Loaded: ${file.name}`;
+            document.getElementById('previewSection').style.display = 'block';
+        } catch (e) {
+            document.getElementById('fileStatus').innerHTML = `❌ Upload failed: ${e.message}`;
+        }
+    }
+
+    function renderPreview(data) {
+        const tbody = document.getElementById('previewTableBody');
+        tbody.innerHTML = '';
+        const items = data.items || [];
+
+        document.getElementById('itemCount').textContent = items.length;
+        const dirty = items.filter(i => i.is_dirty).length;
+        document.getElementById('dirtyCount').textContent = dirty > 0 ? `⚠️ ${dirty} rows need attention` : '✅ All clean';
+        document.getElementById('errorBanner').textContent = data.errors?.join('; ') || '';
+
+        items.forEach((item, idx) => {
+            const tr = document.createElement('tr');
+            if (item.is_dirty) tr.className = 'dirty-row';
+
+            const isDirtyLength = item.dirty_fields.includes('length');
+            const isDirtyWidth = item.dirty_fields.includes('width');
+            const isDirtyHeight = item.dirty_fields.includes('height');
+            const isDirtyMass = item.dirty_fields.includes('mass');
+
+            tr.innerHTML = `
+                <td>${item.row_index}</td>
+                <td><input type="text" value="${item.description}" data-idx="${idx}" data-field="description" class="edit-input" style="width:100px;"></td>
+                <td class="${isDirtyLength ? 'dirty-cell' : ''}"><input type="number" step="0.01" value="${item.length_m}" data-idx="${idx}" data-field="length_m" class="edit-input" style="width:60px;"></td>
+                <td class="${isDirtyWidth ? 'dirty-cell' : ''}"><input type="number" step="0.01" value="${item.width_m}" data-idx="${idx}" data-field="width_m" class="edit-input" style="width:60px;"></td>
+                <td class="${isDirtyHeight ? 'dirty-cell' : ''}"><input type="number" step="0.01" value="${item.height_m}" data-idx="${idx}" data-field="height_m" class="edit-input" style="width:60px;"></td>
+                <td class="${isDirtyMass ? 'dirty-cell' : ''}">
+                    <input type="number" step="0.1" value="${item.mass_kg}" data-idx="${idx}" data-field="mass_kg" class="edit-input" style="width:80px;">
+                    ${item.suggested_mass ? `<span class="badge-warning" style="cursor:pointer;" onclick="applySuggestion(${idx}, 'mass_kg', ${item.suggested_mass})">💡 ${item.suggested_mass}kg</span>` : ''}
+                </td>
+                <td>${item.is_dirty ? '⚠️ Missing' : '✅'}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        document.querySelectorAll('.edit-input').forEach(input => {
+            input.addEventListener('change', (e) => {
+                const idx = parseInt(e.target.dataset.idx);
+                const field = e.target.dataset.field;
+                let val = e.target.value;
+                if (field === 'description') {
+                    currentItems[idx][field] = val;
+                } else {
+                    currentItems[idx][field] = parseFloat(val) || 0;
+                }
+                const item = currentItems[idx];
+                item.is_dirty = (item.length_m === 0 || item.width_m === 0 || item.height_m === 0 || item.mass_kg === 0);
+            });
+        });
+    }
+
+    function applySuggestion(idx, field, value) {
+        currentItems[idx][field] = value;
+        renderPreview(currentFileData);
+    }
+
+    // ===================== CALCULATION =====================
+    async function runCalculation() {
+        if (isCalcRunning) return;
+        isCalcRunning = true;
+        document.getElementById('calcBtn').disabled = true;
+        document.getElementById('calcBtn').textContent = '⏳ Calculating...';
+
+        const inputs = document.querySelectorAll('.edit-input');
+        inputs.forEach(inp => {
+            const idx = parseInt(inp.dataset.idx);
+            const field = inp.dataset.field;
+            let val = inp.value;
+            if (field === 'description') currentItems[idx][field] = val;
+            else currentItems[idx][field] = parseFloat(val) || 0;
+        });
+
+        const payload = {
+            trailer_name: document.getElementById('trailerSelect').value,
+            items: currentItems.map(i => ({
+                id: i.id,
+                description: i.description,
+                length_m: i.length_m,
+                width_m: i.width_m,
+                height_m: i.height_m,
+                mass_kg: i.mass_kg,
+                can_rotate: true,
+                is_stackable: false
+            }))
+        };
+
+        try {
+            const res = await fetch('/api/plan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const result = await res.json();
+            if (result.status === 'success') {
+                showResults(result);
+            } else {
+                alert('Error: ' + JSON.stringify(result));
+            }
+        } catch (e) {
+            alert('Failed to calculate: ' + e.message);
+        }
+
+        isCalcRunning = false;
+        document.getElementById('calcBtn').disabled = false;
+        document.getElementById('calcBtn').textContent = '🚀 Calculate Load Plan';
+    }
+
+    // ===================== 3D VIEWER =====================
+    let viewerInitialized = false;
+
+    function initViewer() {
+        const container = document.getElementById('canvas-container');
+        const width = container.clientWidth;
+        const height = container.clientHeight || 500;
+
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1e293b);
+
+        camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
+        camera.position.set(12, 8, 12);
+        camera.lookAt(6, 0, 0);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(width, height);
+        renderer.shadowMap.enabled = true;
+        container.appendChild(renderer.domElement);
+
+        controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.target.set(6, 0, 0);
+        controls.update();
+
+        const ambientLight = new THREE.AmbientLight(0x404060);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+        dirLight.position.set(10, 20, 10);
+        dirLight.castShadow = true;
+        scene.add(dirLight);
+        const fillLight = new THREE.DirectionalLight(0x8888ff, 0.5);
+        fillLight.position.set(-10, 0, 10);
+        scene.add(fillLight);
+
+        const gridHelper = new THREE.GridHelper(20, 20, 0x888888, 0x444444);
+        gridHelper.position.y = -0.01;
+        scene.add(gridHelper);
+
+        viewerInitialized = true;
+
+        window.addEventListener('resize', () => {
+            const w = container.clientWidth;
+            const h = container.clientHeight || 500;
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+        });
+    }
+
+    function render3DPlan(visData) {
+        if (!viewerInitialized) initViewer();
+
+        const toRemove = [];
+        scene.children.forEach(child => {
+            if (child.isMesh || child.isGroup || child.type === 'AxesHelper') {
+                toRemove.push(child);
+            }
+        });
+        toRemove.forEach(child => scene.remove(child));
+
+        const items = visData.items || [];
+        const containerLen = visData.container_length_m || 18;
+        const containerWid = visData.container_width_m || 2.4;
+        const deckHeight = visData.deck_height_m || 1.2;
+
+        const geometry = new THREE.BoxGeometry(containerLen, 0.1, containerWid);
+        const material = new THREE.MeshStandardMaterial({ color: 0x4a5568, transparent: true, opacity: 0.3 });
+        const deck = new THREE.Mesh(geometry, material);
+        deck.position.set(containerLen/2, 0, 0);
+        deck.receiveShadow = true;
+        scene.add(deck);
+
+        const colorCache = {};
+        items.forEach((item, idx) => {
+            if (!colorCache[item.id]) {
+                const hue = Math.floor(Math.random() * 360);
+                const sat = 60 + Math.floor(Math.random() * 30);
+                const lig = 50 + Math.floor(Math.random() * 30);
+                colorCache[item.id] = `hsl(${hue}, ${sat}%, ${lig}%)`;
+            }
+            const color = new THREE.Color(colorCache[item.id]);
+
+            const w = item.width || 1;
+            const d = item.depth || 1;
+            const h = item.height || 1;
+            const x = item.x || 0;
+            const y = item.y || 0;
+            const z = item.z || deckHeight;
+
+            const boxGeo = new THREE.BoxGeometry(d, h, w);
+            const boxMat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.4, metalness: 0.1 });
+            const box = new THREE.Mesh(boxGeo, boxMat);
+            box.position.set(x + d/2, z + h/2, y + w/2 - containerWid/2);
+            box.castShadow = true;
+            box.receiveShadow = true;
+            scene.add(box);
+
+            const edges = new THREE.EdgesGeometry(boxGeo);
+            const lineMat = new THREE.LineBasicMaterial({ color: 0x000000 });
+            const wireframe = new THREE.LineSegments(edges, lineMat);
+            wireframe.position.copy(box.position);
+            scene.add(wireframe);
+
+            const labelGeo = new THREE.SphereGeometry(0.05, 6, 6);
+            const labelMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            const label = new THREE.Mesh(labelGeo, labelMat);
+            label.position.set(x + d/2, z + h + 0.2, y + w/2 - containerWid/2);
+            scene.add(label);
+        });
+
+        const axes = new THREE.AxesHelper(2);
+        axes.position.set(0, 0.1, -containerWid/2 - 0.5);
+        scene.add(axes);
+
+        controls.update();
+        animate();
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+    }
+
+    // ===================== DISPLAY RESULTS =====================
+    function showResults(result) {
+        document.getElementById('resultsSection').style.display = 'block';
+
+        const safe = result.is_safe;
+        document.getElementById('statusIcon').textContent = safe ? '✅ Legal' : '❌ Violation';
+        document.getElementById('statusIcon').className = safe ? 'safe' : 'danger';
+        document.getElementById('totalMass').textContent = result.total_mass_tons + ' t';
+        document.getElementById('utilization').textContent = result.utilization_percent + '%';
+
+        document.getElementById('frontAxle').textContent = result.axle_report?.front_axle_load_tons + ' t' || '0 t';
+        document.getElementById('rearAxle').textContent = result.axle_report?.rear_axle_group_load_tons + ' t' || '0 t';
+        document.getElementById('cog').textContent = result.axle_report?.center_of_gravity_m + ' m' || '0 m';
+
+        const vContainer = document.getElementById('violationsContainer');
+        if (result.violations && result.violations.length > 0) {
+            vContainer.innerHTML = `<ul class="violation-list">${result.violations.map(v => `<li>🚨 ${v}</li>`).join('')}</ul>`;
+        } else {
+            vContainer.innerHTML = '<p style="color: #16a34a;">✅ No violations detected.</p>';
+        }
+
+        const ul = document.getElementById('unplacedList');
+        if (result.unplaced_items && result.unplaced_items.length > 0) {
+            ul.innerHTML = result.unplaced_items.map(i => `<li>❌ ${i.description || i.id}: ${i.reason || 'Does not fit'}</li>`).join('');
+        } else {
+            ul.innerHTML = '<li style="color: #16a34a;">✅ All items placed successfully.</li>';
+        }
+
+        if (result.visualization) {
+            render3DPlan(result.visualization);
+        }
+
+        document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    window.addEventListener('load', () => {
+        initViewer();
+    });
+</script>
+</body>
+</html>
