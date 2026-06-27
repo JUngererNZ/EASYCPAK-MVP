@@ -55,6 +55,8 @@
         .btn:hover { background: #1d4ed8; }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-secondary { background: #94a3b8; }
+        .btn-success { background: #16a34a; }
+        .btn-success:hover { background: #15803d; }
 
         .mt-16 { margin-top: 16px; }
         .flex { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
@@ -111,6 +113,7 @@
                     <select id="trailerSelect"></select>
                 </div>
                 <button class="btn" id="calcBtn">🚀 Calculate Load Plan</button>
+                <button class="btn btn-success" id="recommendBtn">🤖 Smart Recommend</button>
             </div>
         </div>
     </div>
@@ -201,6 +204,9 @@
 
         // Calculate button
         document.getElementById('calcBtn').addEventListener('click', runCalculation);
+        
+        // Smart Recommend button
+        document.getElementById('recommendBtn').addEventListener('click', runRecommendation);
     });
 
     // ===================== FILE HANDLING =====================
@@ -324,6 +330,21 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
+
+            if (!res.ok) {
+                const errorText = await res.text();
+                try {
+                    const errorJson = JSON.parse(errorText);
+                    alert('Server Error: ' + (errorJson.detail || JSON.stringify(errorJson)));
+                } catch {
+                    alert('Server Error (HTTP ' + res.status + '): ' + errorText.substring(0, 200));
+                }
+                isCalcRunning = false;
+                document.getElementById('calcBtn').disabled = false;
+                document.getElementById('calcBtn').textContent = '🚀 Calculate Load Plan';
+                return;
+            }
+
             const result = await res.json();
             if (result.status === 'success') {
                 showResults(result);
@@ -337,6 +358,92 @@
         isCalcRunning = false;
         document.getElementById('calcBtn').disabled = false;
         document.getElementById('calcBtn').textContent = '🚀 Calculate Load Plan';
+    }
+
+    // ===================== SMART RECOMMENDATION =====================
+    async function runRecommendation() {
+        if (isCalcRunning) return;
+        isCalcRunning = true;
+        document.getElementById('recommendBtn').disabled = true;
+        document.getElementById('recommendBtn').textContent = '⏳ Analyzing...';
+
+        const inputs = document.querySelectorAll('.edit-input');
+        inputs.forEach(inp => {
+            const idx = parseInt(inp.dataset.idx);
+            const field = inp.dataset.field;
+            let val = inp.value;
+            if (field === 'description') currentItems[idx][field] = val;
+            else currentItems[idx][field] = parseFloat(val) || 0;
+        });
+
+        const payload = {
+            trailer_name: 'Flatbed Standard',
+            items: currentItems.map(i => ({
+                id: i.id,
+                description: i.description,
+                length_m: i.length_m,
+                width_m: i.width_m,
+                height_m: i.height_m,
+                mass_kg: i.mass_kg,
+                can_rotate: true,
+                is_stackable: false
+            }))
+        };
+
+        try {
+            const res = await fetch('/api/recommend', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) {
+                const errorText = await res.text();
+                try {
+                    const errorJson = JSON.parse(errorText);
+                    alert('Server Error: ' + (errorJson.detail || JSON.stringify(errorJson)));
+                } catch {
+                    alert('Server Error (HTTP ' + res.status + '): ' + errorText.substring(0, 200));
+                }
+                isCalcRunning = false;
+                document.getElementById('recommendBtn').disabled = false;
+                document.getElementById('recommendBtn').textContent = '🤖 Smart Recommend';
+                return;
+            }
+
+            const result = await res.json();
+            
+            alert(`✅ Recommendation: ${result.recommendation}\n\nTotal Mass: ${result.total_mass_tons} t\nUtilization: ${result.utilization_percent}%\n\n${result.is_safe ? '✅ Legally compliant' : '❌ Weight violation detected'}`);
+
+            if (result.combined_visualization) {
+                const combinedResult = {
+                    status: 'success',
+                    is_safe: result.is_safe,
+                    total_mass_tons: result.total_mass_tons,
+                    utilization_percent: result.utilization_percent,
+                    violations: [],
+                    trailer_name: result.recommendation,
+                    visualization: result.combined_visualization,
+                    axle_report: {
+                        front_axle_load_tons: 0,
+                        rear_axle_group_load_tons: 0,
+                        center_of_gravity_m: 0,
+                        is_legal: result.is_safe
+                    },
+                    unplaced_items: result.unplaced_items || []
+                };
+                showResults(combinedResult);
+            } else if (result.trailers && result.trailers.length > 0) {
+                showResults(result.trailers[0].plan);
+            }
+            
+        } catch (e) {
+            alert('Recommendation failed: ' + e.message);
+        }
+
+        isCalcRunning = false;
+        document.getElementById('recommendBtn').disabled = false;
+        document.getElementById('recommendBtn').textContent = '🤖 Smart Recommend';
     }
 
     // ===================== 3D VIEWER =====================
@@ -412,7 +519,7 @@
         scene.add(deck);
 
         const colorCache = {};
-        items.forEach((item, idx) => {
+        items.forEach((item) => {
             if (!colorCache[item.id]) {
                 const hue = Math.floor(Math.random() * 360);
                 const sat = 60 + Math.floor(Math.random() * 30);
@@ -441,12 +548,6 @@
             const wireframe = new THREE.LineSegments(edges, lineMat);
             wireframe.position.copy(box.position);
             scene.add(wireframe);
-
-            const labelGeo = new THREE.SphereGeometry(0.05, 6, 6);
-            const labelMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-            const label = new THREE.Mesh(labelGeo, labelMat);
-            label.position.set(x + d/2, z + h + 0.2, y + w/2 - containerWid/2);
-            scene.add(label);
         });
 
         const axes = new THREE.AxesHelper(2);
@@ -473,9 +574,9 @@
         document.getElementById('totalMass').textContent = result.total_mass_tons + ' t';
         document.getElementById('utilization').textContent = result.utilization_percent + '%';
 
-        document.getElementById('frontAxle').textContent = result.axle_report?.front_axle_load_tons + ' t' || '0 t';
-        document.getElementById('rearAxle').textContent = result.axle_report?.rear_axle_group_load_tons + ' t' || '0 t';
-        document.getElementById('cog').textContent = result.axle_report?.center_of_gravity_m + ' m' || '0 m';
+        document.getElementById('frontAxle').textContent = (result.axle_report?.front_axle_load_tons || 0) + ' t';
+        document.getElementById('rearAxle').textContent = (result.axle_report?.rear_axle_group_load_tons || 0) + ' t';
+        document.getElementById('cog').textContent = (result.axle_report?.center_of_gravity_m || 0) + ' m';
 
         const vContainer = document.getElementById('violationsContainer');
         if (result.violations && result.violations.length > 0) {
