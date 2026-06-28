@@ -523,6 +523,14 @@
     function render3DPlan(visData) {
         if (!viewerInitialized) initViewer();
 
+        // Resize renderer to current container dimensions (handles hidden -> visible transition)
+        const container = document.getElementById('canvas-container');
+        const width = container.clientWidth;
+        const height = container.clientHeight || 500;
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+        renderer.setSize(width, height);
+
         const toRemove = [];
         scene.children.forEach(child => {
             if (child.isMesh || child.isGroup || child.type === 'AxesHelper' || child.type === 'LineSegments') {
@@ -630,9 +638,6 @@
         document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
     }
 
-    window.addEventListener('load', () => {
-        initViewer();
-    });
 </script>
 </body>
 </html>

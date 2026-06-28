@@ -16,6 +16,21 @@ def plan_single_trailer(trailer_name: str, items: List[CargoItem]):
     
     total_mass = sum(p.item.mass_kg for p in placements)
     
+    # Identify unplaced items
+    placed_ids = set(id(p.item) for p in placements)
+    unplaced = []
+    for item in items:
+        if id(item) not in placed_ids:
+            unplaced.append({
+                "id": item.id,
+                "description": item.description,
+                "length_m": item.length_m,
+                "width_m": item.width_m,
+                "height_m": item.height_m,
+                "mass_kg": item.mass_kg,
+                "reason": "Does not fit on trailer deck"
+            })
+    
     # Build visualization items
     vis_items = []
     for p in placements:
@@ -47,7 +62,7 @@ def plan_single_trailer(trailer_name: str, items: List[CargoItem]):
             "total_mass_kg": total_mass,
             "placements": [{"item_id": p.item.id, "x_m": p.x_m, "y_m": p.y_m, "z_m": p.z_m, "rotated": p.rotated} for p in placements]
         },
-        "unplaced_items": [],
+        "unplaced_items": unplaced,
         "axle_report": {
             "front_axle_load_tons": round(total_mass * 0.3 / 1000, 2),
             "rear_axle_group_load_tons": round(total_mass * 0.7 / 1000, 2),
@@ -84,15 +99,15 @@ def plan_superlink(config_type: str, items: List[CargoItem]):
     front_candidates.sort(key=lambda i: (i.mass_kg, i.length_m * i.width_m), reverse=True)
     front_placements = pack_floor_bin(front_candidates, front_length, superlink.front['width_m'])
     
-    placed_ids = set()
+    all_placed_ids = set()
     for p in front_placements:
         superlink.add_item_to_front(p.item, x_pos=p.x_m, y_pos=p.y_m)
-        placed_ids.add(id(p.item))
+        all_placed_ids.add(id(p.item))
     
     # Remaining items for rear
     remaining = list(rear_forced)
     for item in front_candidates:
-        if id(item) not in placed_ids:
+        if id(item) not in all_placed_ids:
             remaining.append(item)
     
     # Stage 2: Rear
@@ -100,6 +115,21 @@ def plan_superlink(config_type: str, items: List[CargoItem]):
     rear_placements = pack_floor_bin(remaining, rear_length, superlink.rear['width_m'])
     for p in rear_placements:
         superlink.add_item_to_rear(p.item, x_pos=p.x_m, y_pos=p.y_m)
+        all_placed_ids.add(id(p.item))
+    
+    # Identify unplaced items
+    unplaced = []
+    for item in items:
+        if id(item) not in all_placed_ids:
+            unplaced.append({
+                "id": item.id,
+                "description": item.description,
+                "length_m": item.length_m,
+                "width_m": item.width_m,
+                "height_m": item.height_m,
+                "mass_kg": item.mass_kg,
+                "reason": "Does not fit on superlink"
+            })
     
     # Compliance
     is_safe, violations = superlink.is_safe()
@@ -153,7 +183,7 @@ def plan_superlink(config_type: str, items: List[CargoItem]):
             "total_mass_kg": superlink.rear['total_mass_kg'],
             "placements": [{"item_id": i.id, "x_m": i.x_pos, "y_m": i.y_pos, "z_m": 0} for i in superlink.rear['items']]
         },
-        "unplaced_items": [],
+        "unplaced_items": unplaced,
         "axle_report": {
             "front_axle_load_tons": round(front_axle / 1000, 2),
             "rear_axle_group_load_tons": round(rear_axle / 1000, 2),

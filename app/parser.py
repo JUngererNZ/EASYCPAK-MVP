@@ -54,6 +54,10 @@ def parse_upload_file(file_bytes: bytes, filename: str, unit_system: str = "m", 
         elif 'mass' in col_lower or 'weight' in col_lower or 'ton' in col_lower:
             if 'mass' not in col_map:
                 col_map['mass'] = col
+        
+        # Quantity columns
+        if col_lower in ['qty', 'quantity', 'units', 'pieces', 'count', 'unit', 'pcs']:
+            col_map['quantity'] = col
 
     # ====== FALLBACK: Use position-based guessing ======
     if not col_map or 'length' not in col_map:
@@ -109,6 +113,8 @@ def parse_upload_file(file_bytes: bytes, filename: str, unit_system: str = "m", 
     items = []
     errors = []
     
+    qty_col = col_map.get('quantity')
+    
     for idx, row in df.iterrows():
         try:
             desc_col = col_map.get('description')
@@ -123,6 +129,11 @@ def parse_upload_file(file_bytes: bytes, filename: str, unit_system: str = "m", 
             h = float(row[hei_col]) if hei_col and hei_col in row and pd.notna(row[hei_col]) else 0.0
             mass_raw = float(row[mas_col]) if mas_col and mas_col in row and pd.notna(row[mas_col]) else 0.0
             desc = str(row[desc_col]) if desc_col and desc_col in row and pd.notna(row[desc_col]) else f"Item_{idx+2}"
+            
+            # Get quantity (default 1)
+            qty = 1
+            if qty_col and qty_col in row and pd.notna(row[qty_col]):
+                qty = max(1, int(float(row[qty_col])))
             
             # Clean description
             if desc.endswith('.0'):
@@ -151,18 +162,21 @@ def parse_upload_file(file_bytes: bytes, filename: str, unit_system: str = "m", 
             if mass_kg == 0 and l_m > 0 and w_m > 0 and h_m > 0:
                 suggested_mass = round(l_m * w_m * h_m * 500, 2)
             
-            items.append({
-                "row_index": idx + 2,
-                "id": f"ROW_{idx+2}",
-                "description": desc,
-                "length_m": l_m,
-                "width_m": w_m,
-                "height_m": h_m,
-                "mass_kg": mass_kg,
-                "is_dirty": is_dirty,
-                "dirty_fields": dirty_fields,
-                "suggested_mass": suggested_mass
-            })
+            # Expand quantity into multiple items
+            for copy_idx in range(qty):
+                item_id = f"ROW_{idx+2}" if qty == 1 else f"ROW_{idx+2}_{copy_idx+1}"
+                items.append({
+                    "row_index": idx + 2 if qty == 1 else f"{idx+2}.{copy_idx+1}",
+                    "id": item_id,
+                    "description": desc,
+                    "length_m": l_m,
+                    "width_m": w_m,
+                    "height_m": h_m,
+                    "mass_kg": mass_kg,
+                    "is_dirty": is_dirty,
+                    "dirty_fields": dirty_fields,
+                    "suggested_mass": suggested_mass
+                })
         except Exception as e:
             errors.append(f"Row {idx+2}: Parse error - {str(e)}")
 
