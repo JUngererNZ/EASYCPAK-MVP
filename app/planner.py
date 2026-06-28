@@ -269,8 +269,8 @@ def recommend_trailers(items: List[CargoItem]):
         except Exception as e:
             continue
 
-    # 3. Multi-trailer greedy approach (largest first)
-    multi_trailer_order = list(reversed(available_order))
+    # 3. Multi-trailer greedy approach (largest capacity first)
+    multi_trailer_order = sorted(available_order, key=lambda t: TRAILER_TYPES[t].get('max_payload_kg', 0) if isinstance(TRAILER_TYPES[t], dict) else TRAILER_TYPES[t].max_payload_kg, reverse=True)
     remaining_items = list(items)
     trailer_used = []
     

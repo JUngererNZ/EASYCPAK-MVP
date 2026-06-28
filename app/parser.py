@@ -23,10 +23,17 @@ def parse_upload_file(file_bytes: bytes, filename: str, unit_system: str = "m", 
         col_lower = col.lower().strip()
         col_clean = re.sub(r'[^a-z]', '', col_lower)
         
-        # Description columns
-        if col_lower in ['cube', 'desc', 'description', 'item', 'name', 'product', 'code', 'model']:
-            col_map['description'] = col
-        elif 'cube' in col_lower or 'desc' in col_lower or 'model' in col_lower:
+        # Description columns (order matters: more specific first)
+        if col_lower in ['desc', 'description', 'item', 'name', 'product']:
+            if 'description' not in col_map:
+                col_map['description'] = col
+        elif col_lower in ['code', 'model']:
+            if 'description' not in col_map:
+                col_map['description'] = col
+        elif 'desc' in col_lower or 'model' in col_lower:
+            if 'description' not in col_map:
+                col_map['description'] = col
+        elif col_lower == 'cube' or 'cube' in col_clean:
             if 'description' not in col_map:
                 col_map['description'] = col
         

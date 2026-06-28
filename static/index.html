@@ -473,10 +473,16 @@
 
     // ===================== 3D VIEWER =====================
     let viewerInitialized = false;
+    let viewerFailed = false;
 
     function initViewer() {
+        if (!window.THREE) {
+            viewerFailed = true;
+            document.getElementById('canvas-container').innerHTML = '<div style="color:#94a3b8;text-align:center;padding:40px;">3D viewer unavailable (library not loaded)</div>';
+            return;
+        }
         const container = document.getElementById('canvas-container');
-        const width = container.clientWidth;
+        const width = container.clientWidth || 600;
         const height = container.clientHeight || 500;
 
         scene = new THREE.Scene();
@@ -512,20 +518,24 @@
         viewerInitialized = true;
 
         window.addEventListener('resize', () => {
+            if (!renderer) return;
             const w = container.clientWidth;
             const h = container.clientHeight || 500;
             camera.aspect = w / h;
             camera.updateProjectionMatrix();
             renderer.setSize(w, h);
         });
+
+        animate();
     }
 
     function render3DPlan(visData) {
+        if (viewerFailed) return;
         if (!viewerInitialized) initViewer();
+        if (!viewerInitialized) return;
 
-        // Resize renderer to current container dimensions (handles hidden -> visible transition)
         const container = document.getElementById('canvas-container');
-        const width = container.clientWidth;
+        const width = container.clientWidth || 600;
         const height = container.clientHeight || 500;
         camera.aspect = width / height;
         camera.updateProjectionMatrix();
@@ -591,16 +601,16 @@
             scene.add(wireframe);
         });
 
-        // Update controls target to center of all items
         controls.target.set(containerLen/2, 0, 0);
         controls.update();
-        animate();
     }
 
     function animate() {
         requestAnimationFrame(animate);
-        controls.update();
-        renderer.render(scene, camera);
+        if (controls && renderer && scene && camera) {
+            controls.update();
+            renderer.render(scene, camera);
+        }
     }
 
     // ===================== DISPLAY RESULTS =====================
@@ -626,7 +636,7 @@
 
         const ul = document.getElementById('unplacedList');
         if (result.unplaced_items && result.unplaced_items.length > 0) {
-            ul.innerHTML = result.unplaced_items.map(i => `<li>❌ ${i.description || i.id}: ${i.reason || 'Does not fit'}</li>`).join('');
+            ul.innerHTML = result.unplaced_items.map(i => `<li>❌ ${i.description || i.id} (${i.length_m}m × ${i.width_m}m × ${i.height_m}m, ${i.mass_kg}kg): ${i.reason || 'Does not fit'}</li>`).join('');
         } else {
             ul.innerHTML = '<li style="color: #16a34a;">✅ All items placed successfully.</li>';
         }
