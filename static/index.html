@@ -64,8 +64,11 @@
         .mb-8 { margin-bottom: 8px; }
 
         .units-toggle { display: flex; gap: 4px; background: #e2e8f0; padding: 4px; border-radius: 8px; }
-        .units-toggle button { background: transparent; border: none; padding: 6px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+        .units-toggle button { background: transparent; border: none; padding: 6px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px; }
         .units-toggle button.active { background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+
+        .toggle-group { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+        .toggle-label { font-size: 12px; color: #64748b; }
 
         @media (max-width: 1024px) { .grid-2 { grid-template-columns: 1fr; } }
     </style>
@@ -85,14 +88,25 @@
                     <div id="fileStatus" style="margin-top: 8px;"></div>
                 </div>
             </div>
-            <div style="min-width: 150px;">
-                <div class="units-toggle" id="unitsToggle">
-                    <button data-unit="cm">cm</button>
-                    <button data-unit="in">in</button>
-                    <button data-unit="mm">mm</button>
-                    <button class="active" data-unit="m">m</button>
-            </div>
-                <p style="font-size: 12px; color: #64748b; margin-top: 4px;">Measurements unit</p>
+            <div style="min-width: 200px;">
+                <div class="toggle-group">
+                    <div>
+                        <div class="units-toggle" id="unitsToggle">
+                            <button data-unit="cm">cm</button>
+                            <button data-unit="in">in</button>
+                            <button data-unit="mm">mm</button>
+                            <button class="active" data-unit="m">m</button>
+                        </div>
+                        <p class="toggle-label">Dimensions</p>
+                    </div>
+                    <div>
+                        <div class="units-toggle" id="massToggle">
+                            <button class="active" data-mass="kg">kg</button>
+                            <button data-mass="ton">ton</button>
+                        </div>
+                        <p class="toggle-label">Mass</p>
+                    </div>
+                </div>
             </div>
         </div>
         <div id="previewSection" style="display: none;">
@@ -122,13 +136,11 @@
     <!-- Results Section -->
     <div id="resultsSection" style="display: none; margin-top: 24px;">
         <div class="grid-2">
-            <!-- Left: 3D Viewer -->
             <div class="card">
                 <div class="card-title">3D Load Visualization</div>
                 <div id="canvas-container"></div>
                 <div style="margin-top: 8px; font-size: 12px; color: #64748b; text-align: center;">🖱️ Drag to rotate | Scroll to zoom</div>
             </div>
-            <!-- Right: Dashboard -->
             <div class="card">
                 <div class="card-title">Compliance Dashboard</div>
                 <div class="status-grid" id="statusGrid">
@@ -159,6 +171,7 @@
     // ===================== GLOBALS =====================
     let currentItems = [];
     let currentUnit = 'm';
+    let currentMassUnit = 'kg';
     let trailerList = [];
     let scene, camera, renderer, controls;
     let isCalcRunning = false;
@@ -191,7 +204,7 @@
             if (fileInput.files.length) handleFile(fileInput.files[0]);
         });
 
-        // Units toggle
+        // Units toggle (Dimensions)
         document.querySelectorAll('#unitsToggle button').forEach(btn => {
             btn.addEventListener('click', () => {
                 document.querySelectorAll('#unitsToggle button').forEach(b => b.classList.remove('active'));
@@ -203,10 +216,20 @@
             });
         });
 
+        // Units toggle (Mass)
+        document.querySelectorAll('#massToggle button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('#massToggle button').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentMassUnit = btn.dataset.mass;
+                if (currentItems.length > 0) {
+                    if (window._lastFile) handleFile(window._lastFile);
+                }
+            });
+        });
+
         // Calculate button
         document.getElementById('calcBtn').addEventListener('click', runCalculation);
-        
-        // Smart Recommend button
         document.getElementById('recommendBtn').addEventListener('click', runRecommendation);
     });
 
@@ -218,6 +241,7 @@
         const formData = new FormData();
         formData.append('file', file);
         formData.append('units', currentUnit);
+        formData.append('mass_unit', currentMassUnit);
 
         document.getElementById('fileStatus').innerHTML = `⏳ Uploading...`;
 
@@ -266,7 +290,7 @@
                 <td class="${isDirtyWidth ? 'dirty-cell' : ''}"><input type="number" step="0.01" value="${item.width_m}" data-idx="${idx}" data-field="width_m" class="edit-input" style="width:60px;"></td>
                 <td class="${isDirtyHeight ? 'dirty-cell' : ''}"><input type="number" step="0.01" value="${item.height_m}" data-idx="${idx}" data-field="height_m" class="edit-input" style="width:60px;"></td>
                 <td class="${isDirtyMass ? 'dirty-cell' : ''}">
-                    <input type="number" step="0.1" value="${item.mass_kg}" data-idx="${idx}" data-field="mass_kg" class="edit-input" style="width:80px;">
+                    <input type="number" step="0.01" value="${item.mass_kg}" data-idx="${idx}" data-field="mass_kg" class="edit-input" style="width:80px;">
                     ${item.suggested_mass ? `<span class="badge-warning" style="cursor:pointer;" onclick="applySuggestion(${idx}, 'mass_kg', ${item.suggested_mass})">💡 ${item.suggested_mass}kg</span>` : ''}
                 </td>
                 <td>${item.is_dirty ? '⚠️ Missing' : '✅'}</td>
@@ -459,8 +483,8 @@
         scene.background = new THREE.Color(0x1e293b);
 
         camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
-        camera.position.set(12, 8, 12);
-        camera.lookAt(6, 0, 0);
+        camera.position.set(20, 15, 20);
+        camera.lookAt(10, 0, 0);
 
         renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(width, height);
@@ -468,7 +492,7 @@
         container.appendChild(renderer.domElement);
 
         controls = new THREE.OrbitControls(camera, renderer.domElement);
-        controls.target.set(6, 0, 0);
+        controls.target.set(10, 0, 0);
         controls.update();
 
         const ambientLight = new THREE.AmbientLight(0x404060);
@@ -481,7 +505,7 @@
         fillLight.position.set(-10, 0, 10);
         scene.add(fillLight);
 
-        const gridHelper = new THREE.GridHelper(20, 20, 0x888888, 0x444444);
+        const gridHelper = new THREE.GridHelper(50, 30, 0x888888, 0x444444);
         gridHelper.position.y = -0.01;
         scene.add(gridHelper);
 
@@ -501,7 +525,7 @@
 
         const toRemove = [];
         scene.children.forEach(child => {
-            if (child.isMesh || child.isGroup || child.type === 'AxesHelper') {
+            if (child.isMesh || child.isGroup || child.type === 'AxesHelper' || child.type === 'LineSegments') {
                 toRemove.push(child);
             }
         });
@@ -512,12 +536,20 @@
         const containerWid = visData.container_width_m || 2.4;
         const deckHeight = visData.deck_height_m || 1.2;
 
+        // Draw trailer deck outline
         const geometry = new THREE.BoxGeometry(containerLen, 0.1, containerWid);
         const material = new THREE.MeshStandardMaterial({ color: 0x4a5568, transparent: true, opacity: 0.3 });
         const deck = new THREE.Mesh(geometry, material);
         deck.position.set(containerLen/2, 0, 0);
         deck.receiveShadow = true;
         scene.add(deck);
+
+        // Draw deck outline (edges)
+        const deckEdges = new THREE.EdgesGeometry(geometry);
+        const deckLineMat = new THREE.LineBasicMaterial({ color: 0x888888 });
+        const deckWireframe = new THREE.LineSegments(deckEdges, deckLineMat);
+        deckWireframe.position.copy(deck.position);
+        scene.add(deckWireframe);
 
         const colorCache = {};
         items.forEach((item) => {
@@ -551,10 +583,8 @@
             scene.add(wireframe);
         });
 
-        const axes = new THREE.AxesHelper(2);
-        axes.position.set(0, 0.1, -containerWid/2 - 0.5);
-        scene.add(axes);
-
+        // Update controls target to center of all items
+        controls.target.set(containerLen/2, 0, 0);
         controls.update();
         animate();
     }

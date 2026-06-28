@@ -35,9 +35,13 @@ async def list_trailers():
     return {"trailers": list(TRAILER_TYPES.keys())}
 
 @app.post("/api/upload-preview")
-async def upload_preview(file: UploadFile = File(...), units: str = Form("cm")):
+async def upload_preview(
+    file: UploadFile = File(...), 
+    units: str = Form("m"),
+    mass_unit: str = Form("kg")
+):
     contents = await file.read()
-    result = parse_upload_file(contents, file.filename, units)
+    result = parse_upload_file(contents, file.filename, units, mass_unit)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
