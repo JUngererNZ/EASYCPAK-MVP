@@ -40,6 +40,10 @@
         /* 3D Viewer */
         #canvas-container { width: 100%; height: 500px; background: #1e293b; border-radius: 8px; overflow: hidden; position: relative; }
         #canvas-container canvas { display: block; }
+        .trailer-selector { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+        .trailer-btn { background: #e2e8f0; border: 2px solid transparent; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+        .trailer-btn:hover { background: #cbd5e1; }
+        .trailer-btn.active { background: #2563eb; color: white; border-color: #1d4ed8; }
 
         /* Dashboard */
         .status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 12px; }
@@ -138,6 +142,7 @@
         <div class="grid-2">
             <div class="card">
                 <div class="card-title">3D Load Visualization</div>
+                <div id="trailerSelector" class="trailer-selector" style="display:none;"></div>
                 <div id="canvas-container"></div>
                 <div style="margin-top: 8px; font-size: 12px; color: #64748b; text-align: center;">🖱️ Drag to rotate | Scroll to zoom</div>
             </div>
@@ -161,9 +166,12 @@
                     <h4>Unplaced Items</h4>
                     <ul id="unplacedList" style="color: #dc2626;"></ul>
                 </div>
-                <button class="btn btn-secondary mt-16" onclick="window.print()">🖨️ Export to PDF</button>
+                <button class="btn btn-secondary mt-16" onclick="window.print()">🖨️ Print</button>
+                <button class="btn btn-secondary mt-16" id="downloadReportBtn" style="display:none;" onclick="downloadReport()">📄 Download Report</button>
             </div>
         </div>
+        <!-- Trailer Breakdown (populated by showRecommendationResults) -->
+        <div id="trailerBreakdown" style="margin-top: 24px;"></div>
     </div>
 </div>
 
@@ -175,6 +183,8 @@
     let trailerList = [];
     let scene, camera, renderer, controls;
     let isCalcRunning = false;
+    let recData = null;           // stores last recommendation result
+    let selectedTrailerIdx = -1;  // -1 = all, 0+ = single trailer
 
     // ===================== INIT =====================
     document.addEventListener('DOMContentLoaded', async () => {
@@ -437,30 +447,7 @@
             }
 
             const result = await res.json();
-            
-            alert(`✅ Recommendation: ${result.recommendation}\n\nTotal Mass: ${result.total_mass_tons} t\nUtilization: ${result.utilization_percent}%\n\n${result.is_safe ? '✅ Legally compliant' : '❌ Weight violation detected'}`);
-
-            if (result.combined_visualization) {
-                const combinedResult = {
-                    status: 'success',
-                    is_safe: result.is_safe,
-                    total_mass_tons: result.total_mass_tons,
-                    utilization_percent: result.utilization_percent,
-                    violations: [],
-                    trailer_name: result.recommendation,
-                    visualization: result.combined_visualization,
-                    axle_report: {
-                        front_axle_load_tons: 0,
-                        rear_axle_group_load_tons: 0,
-                        center_of_gravity_m: 0,
-                        is_legal: result.is_safe
-                    },
-                    unplaced_items: result.unplaced_items || []
-                };
-                showResults(combinedResult);
-            } else if (result.trailers && result.trailers.length > 0) {
-                showResults(result.trailers[0].plan);
-            }
+            showRecommendationResults(result);
             
         } catch (e) {
             alert('Recommendation failed: ' + e.message);
@@ -469,6 +456,259 @@
         isCalcRunning = false;
         document.getElementById('recommendBtn').disabled = false;
         document.getElementById('recommendBtn').textContent = '🤖 Smart Recommend';
+    }
+
+    // ===================== RECOMMENDATION RESULTS DISPLAY =====================
+    function showRecommendationResults(result) {
+        recData = result;
+        selectedTrailerIdx = -1;
+        document.getElementById('resultsSection').style.display = 'block';
+        document.getElementById('downloadReportBtn').style.display = 'inline-block';
+
+        // Build trailer selector
+        const sel = document.getElementById('trailerSelector');
+        sel.style.display = 'flex';
+        let selHtml = `<button class="trailer-btn active" data-idx="-1" onclick="switchTrailer(-1)">🚚 All Trailers</button>`;
+        (result.trailers || []).forEach((t, idx) => {
+            const plan = t.plan || {};
+            const mt = plan.total_mass_tons || 0;
+            selHtml += `<button class="trailer-btn" data-idx="${idx}" onclick="switchTrailer(${idx})">#${idx+1}: ${mt}t</button>`;
+        });
+        sel.innerHTML = selHtml;
+
+        // Show combined view initially + overview dashboard
+        updateDashboardForView(-1, result);
+        if (result.combined_visualization) {
+            render3DPlan(result.combined_visualization);
+        } else if (result.trailers && result.trailers.length > 0 && result.trailers[0].plan && result.trailers[0].plan.visualization) {
+            render3DPlan(result.trailers[0].plan.visualization);
+        }
+
+        // Per-trailer breakdown (always shows all)
+        const container = document.getElementById('trailerBreakdown');
+        let html = `<div class="card"><div class="card-title">📋 Load Plan: ${result.recommendation}</div>`;
+        html += `<p style="margin-bottom:12px;color:#64748b;">Total trailers: ${result.trailer_count} | Total mass: ${result.total_mass_tons}t | Utilization: ${result.utilization_percent}%</p>`;
+
+        (result.trailers || []).forEach((t, idx) => {
+            const plan = t.plan || {};
+            const trailerType = t.type || plan.trailer_name || `Trailer ${idx+1}`;
+            const isSafe = plan.is_safe !== false;
+            const massT = plan.total_mass_tons || 0;
+            const maxT = plan.max_payload_tons || 0;
+            const util = plan.utilization_percent || 0;
+
+            html += `<div class="card" style="margin-top:12px;border-left:4px solid ${isSafe ? '#16a34a' : '#dc2626'};">`;
+            html += `<div class="flex" style="justify-content:space-between;align-items:center;">`;
+            html += `<h3 style="margin:0;">🚛 Trailer ${idx+1}: ${trailerType}</h3>`;
+            html += `<span style="font-weight:600;color:${isSafe ? '#16a34a' : '#dc2626'};">${isSafe ? '✅ LEGAL' : '❌ OVERLOAD'}</span>`;
+            html += `</div>`;
+
+            // Weight stats
+            html += `<div class="status-grid" style="margin:12px 0;">
+                <div class="stat-box"><div class="stat-label">Mass</div><div class="stat-value">${massT}t / ${maxT}t</div></div>
+                <div class="stat-box"><div class="stat-label">Utilization</div><div class="stat-value">${util}%</div></div>
+                <div class="stat-box"><div class="stat-label">Items</div><div class="stat-value">${plan.rear_trailer ? (plan.rear_trailer.items_placed || 0) + (plan.front_trailer ? ' + ' + (plan.front_trailer.items_placed || 0) : '') : '0'}</div></div>
+            </div>`;
+
+            // Items table
+            const sections = [];
+            if (plan.front_trailer) sections.push({name: plan.front_trailer.section, placements: plan.front_trailer.placements || []});
+            if (plan.rear_trailer) sections.push({name: plan.rear_trailer.section, placements: plan.rear_trailer.placements || []});
+
+            sections.forEach(section => {
+                if (section.placements.length === 0) return;
+                html += `<p style="margin:8px 0 4px;font-weight:600;font-size:14px;">${section.name}</p>`;
+                html += `<div class="table-wrap" style="max-height:200px;"><table style="font-size:13px;">
+                    <thead><tr><th>#</th><th>Item</th><th>Dims (m)</th><th>Mass (kg)</th><th>Position (m)</th><th>Rotated</th></tr></thead><tbody>`;
+                section.placements.forEach((p, i) => {
+                    const dims = `${(p.length_m || 0).toFixed(2)} × ${(p.width_m || 0).toFixed(2)} × ${(p.height_m || 0).toFixed(2)}`;
+                    const pos = `(${(p.x_m || 0).toFixed(2)}, ${(p.y_m || 0).toFixed(2)})`;
+                    html += `<tr>
+                        <td>${i+1}</td>
+                        <td>${p.description || p.item_id || '-'}</td>
+                        <td>${dims}</td>
+                        <td>${(p.mass_kg || 0).toFixed(1)}</td>
+                        <td>${pos}</td>
+                        <td>${p.rotated ? '↔️' : '➡️'}</td>
+                    </tr>`;
+                });
+                html += `</tbody></table></div>`;
+            });
+
+            // Axle report
+            if (plan.axle_report) {
+                const ax = plan.axle_report;
+                html += `<div class="flex" style="justify-content:space-between;margin-top:8px;padding:8px;background:#f1f5f9;border-radius:6px;font-size:13px;">
+                    <span>Front Axle: <strong>${ax.front_axle_load_tons || 0}t</strong></span>
+                    <span>Rear Group: <strong>${ax.rear_axle_group_load_tons || 0}t</strong></span>
+                    <span>COG: <strong>${ax.center_of_gravity_m || 0}m</strong></span>
+                </div>`;
+            }
+
+            html += `</div>`;
+        });
+
+        html += `</div>`;
+        container.innerHTML = html;
+        document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // ===================== SWITCH TRAILER VIEW =====================
+    function switchTrailer(idx) {
+        selectedTrailerIdx = idx;
+        // Update button active states
+        document.querySelectorAll('#trailerSelector .trailer-btn').forEach(btn => {
+            btn.classList.toggle('active', parseInt(btn.dataset.idx) === idx);
+        });
+        // Update dashboard and 3D view
+        updateDashboardForView(idx, recData);
+        if (idx === -1 && recData.combined_visualization) {
+            render3DPlan(recData.combined_visualization);
+        } else if (idx >= 0 && recData.trailers && recData.trailers[idx]) {
+            const plan = recData.trailers[idx].plan;
+            if (plan && plan.visualization) {
+                render3DPlan(plan.visualization);
+            }
+        }
+    }
+
+    function updateDashboardForView(idx, data) {
+        if (!data) return;
+        if (idx === -1) {
+            // Overview (all trailers)
+            document.getElementById('statusIcon').textContent = data.is_safe ? '✅ Legal' : '❌ Violation';
+            document.getElementById('statusIcon').className = data.is_safe ? 'safe' : 'danger';
+            document.getElementById('totalMass').textContent = data.total_mass_tons + ' t';
+            document.getElementById('utilization').textContent = data.utilization_percent + '%';
+            document.getElementById('frontAxle').textContent = '-';
+            document.getElementById('rearAxle').textContent = '-';
+            document.getElementById('cog').textContent = '-';
+
+            const allViolations = [];
+            (data.trailers || []).forEach(t => {
+                if (t.plan && t.plan.violations) allViolations.push(...t.plan.violations);
+            });
+            document.getElementById('violationsContainer').innerHTML = allViolations.length > 0
+                ? `<ul class="violation-list">${allViolations.map(v => `<li>🚨 ${v}</li>`).join('')}</ul>`
+                : '<p style="color: #16a34a;">✅ No violations detected.</p>';
+
+            const ul = document.getElementById('unplacedList');
+            if (data.unplaced_items && data.unplaced_items.length > 0) {
+                ul.innerHTML = data.unplaced_items.map(i => `<li>❌ ${i.description || i.id} (${i.length_m}m × ${i.width_m}m × ${i.height_m}m, ${i.mass_kg}kg): ${i.reason || 'Does not fit'}</li>`).join('');
+            } else {
+                ul.innerHTML = '<li style="color: #16a34a;">✅ All items placed successfully.</li>';
+            }
+        } else if (data.trailers && data.trailers[idx]) {
+            const plan = data.trailers[idx].plan || {};
+            document.getElementById('statusIcon').textContent = plan.is_safe ? '✅ Legal' : '❌ Violation';
+            document.getElementById('statusIcon').className = plan.is_safe ? 'safe' : 'danger';
+            document.getElementById('totalMass').textContent = (plan.total_mass_tons || 0) + ' t / ' + (plan.max_payload_tons || 0) + ' t';
+            document.getElementById('utilization').textContent = (plan.utilization_percent || 0) + '%';
+            document.getElementById('frontAxle').textContent = (plan.axle_report?.front_axle_load_tons || 0) + ' t';
+            document.getElementById('rearAxle').textContent = (plan.axle_report?.rear_axle_group_load_tons || 0) + ' t';
+            document.getElementById('cog').textContent = (plan.axle_report?.center_of_gravity_m || 0) + ' m';
+
+            if (plan.violations && plan.violations.length > 0) {
+                document.getElementById('violationsContainer').innerHTML = `<ul class="violation-list">${plan.violations.map(v => `<li>🚨 ${v}</li>`).join('')}</ul>`;
+            } else {
+                document.getElementById('violationsContainer').innerHTML = '<p style="color: #16a34a;">✅ No violations detected.</p>';
+            }
+            document.getElementById('unplacedList').innerHTML = '<li style="color: #16a34a;">✅ All items placed successfully.</li>';
+        }
+    }
+
+    // ===================== DOWNLOAD REPORT =====================
+    function downloadReport() {
+        // Re-fetch the last recommendation result from the stored display
+        const breakdown = document.getElementById('trailerBreakdown');
+        if (!breakdown || !breakdown.innerHTML) return;
+
+        const lines = [];
+        lines.push('='.repeat(60));
+        lines.push('  LOAD PLAN REPORT');
+        lines.push('='.repeat(60));
+        lines.push('');
+
+        // Overview from dashboard
+        const totalMass = document.getElementById('totalMass')?.textContent || '0 t';
+        const utilization = document.getElementById('utilization')?.textContent || '0%';
+        const status = document.getElementById('statusIcon')?.textContent || '';
+        lines.push(`Status: ${status}`);
+        lines.push(`Total Mass: ${totalMass}`);
+        lines.push(`Utilization: ${utilization}`);
+
+        // Get unplaced items
+        const unplacedEl = document.getElementById('unplacedList');
+        if (unplacedEl) {
+            const items = unplacedEl.querySelectorAll('li');
+            if (items.length > 0) {
+                lines.push('');
+                lines.push('UNPLACED ITEMS:');
+                items.forEach(li => lines.push(`  ${li.textContent}`));
+            }
+        }
+
+        // Parse trailer cards from the breakdown
+        const cards = breakdown.querySelectorAll('.card[style*="border-left"]');
+        cards.forEach((card, idx) => {
+            lines.push('');
+            lines.push('-'.repeat(60));
+            lines.push(`TRAILER ${idx+1}`);
+
+            const h3 = card.querySelector('h3');
+            if (h3) lines.push(`Type: ${h3.textContent.replace('🚛 ', '')}`);
+
+            const statBoxes = card.querySelectorAll('.stat-box');
+            statBoxes.forEach(box => {
+                const label = box.querySelector('.stat-label')?.textContent || '';
+                const value = box.querySelector('.stat-value')?.textContent || '';
+                lines.push(`  ${label}: ${value}`);
+            });
+
+            const tables = card.querySelectorAll('table');
+            tables.forEach(table => {
+                const rows = table.querySelectorAll('tbody tr');
+                if (rows.length === 0) return;
+                // Find section header (previous sibling or parent)
+                let sectionName = 'Items';
+                let prev = table.previousElementSibling;
+                if (prev && prev.tagName === 'P') sectionName = prev.textContent;
+                lines.push(`  ${sectionName}:`);
+                lines.push('  # | Item                          | Dims (m)                | Mass (kg) | Position (m)');
+                lines.push('  ' + '-'.repeat(85));
+                rows.forEach(row => {
+                    const cells = row.querySelectorAll('td');
+                    if (cells.length >= 5) {
+                        const num = cells[0].textContent.trim().padStart(2);
+                        const desc = cells[1].textContent.trim().padEnd(30);
+                        const dims = cells[2].textContent.trim().padEnd(22);
+                        const mass = cells[3].textContent.trim().padStart(9);
+                        const pos = cells[4].textContent.trim().padEnd(14);
+                        lines.push(`  ${num} | ${desc} | ${dims} | ${mass} | ${pos}`);
+                    }
+                });
+            });
+
+            const axleDiv = card.querySelector('.flex[style*="background:#f1f5f9"]');
+            if (axleDiv) {
+                lines.push(`  Axle: ${axleDiv.textContent.trim().replace(/\s+/g, ' | ')}`);
+            }
+        });
+
+        lines.push('');
+        lines.push('='.repeat(60));
+        lines.push('  Generated by Load Planner App');
+        lines.push('='.repeat(60));
+
+        const blob = new Blob([lines.join('\r\n')], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `load-plan-${new Date().toISOString().slice(0,10)}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     }
 
     // ===================== 3D VIEWER =====================

@@ -60,7 +60,7 @@ def plan_single_trailer(trailer_name: str, items: List[CargoItem]):
             "section": "Deck",
             "items_placed": len(placements),
             "total_mass_kg": total_mass,
-            "placements": [{"item_id": p.item.id, "x_m": p.x_m, "y_m": p.y_m, "z_m": p.z_m, "rotated": p.rotated} for p in placements]
+            "placements": [{"item_id": p.item.id, "description": p.item.description, "length_m": p.item.length_m, "width_m": p.item.width_m, "height_m": p.item.height_m, "mass_kg": p.item.mass_kg, "x_m": p.x_m, "y_m": p.y_m, "z_m": p.z_m, "rotated": p.rotated} for p in placements]
         },
         "unplaced_items": unplaced,
         "axle_report": {
@@ -175,13 +175,13 @@ def plan_superlink(config_type: str, items: List[CargoItem]):
             "section": "Leader (Front)",
             "items_placed": len(superlink.front['items']),
             "total_mass_kg": superlink.front['total_mass_kg'],
-            "placements": [{"item_id": i.id, "x_m": i.x_pos, "y_m": i.y_pos, "z_m": 0} for i in superlink.front['items']]
+            "placements": [{"item_id": i.id, "description": i.description, "length_m": i.length_m, "width_m": i.width_m, "height_m": i.height_m, "mass_kg": i.mass_kg, "x_m": i.x_pos, "y_m": i.y_pos, "z_m": 0} for i in superlink.front['items']]
         },
         "rear_trailer": {
             "section": "Follower (Rear)",
             "items_placed": len(superlink.rear['items']),
             "total_mass_kg": superlink.rear['total_mass_kg'],
-            "placements": [{"item_id": i.id, "x_m": i.x_pos, "y_m": i.y_pos, "z_m": 0} for i in superlink.rear['items']]
+            "placements": [{"item_id": i.id, "description": i.description, "length_m": i.length_m, "width_m": i.width_m, "height_m": i.height_m, "mass_kg": i.mass_kg, "x_m": i.x_pos, "y_m": i.y_pos, "z_m": 0} for i in superlink.rear['items']]
         },
         "unplaced_items": unplaced,
         "axle_report": {
